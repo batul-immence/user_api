@@ -2,9 +2,9 @@ const express = require('express')
 const router = express.Router()
 const jwt = require('jsonwebtoken')
 var generator = require('generate-password')
-var nodemailer = require('nodemailer')
 const verify = require('../auth/authVerify')
 const { Op } = require('sequelize')
+const emailServices = require('../emailServices/emailServices')
 const connection = require('../database/connection')
 const User = require('../models/user')(connection)
 require('dotenv').config()
@@ -193,7 +193,7 @@ router.post('/user', verify, async (req, res) => {
 router.get('/user/:id', verify, async (req, res) => {
   var id = req.params.id
 
-  User.findOne({
+  await User.findOne({
     where: {
       id: id,
     },
@@ -268,7 +268,7 @@ router.post('/createUser', verify, async (req, res) => {
       password: passwordSecure.encrypt(password),
       forgotpasswordToken: '',
     })
-      .then((result) => {
+      .then( (result) => {
         res.send({
           isSuccess: false,
           message: 'User created successfully',
@@ -283,30 +283,8 @@ router.post('/createUser', verify, async (req, res) => {
             username: result.username,
           },
         })
-        var transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: process.env.SMTP_PORT,
-          secure: true,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASSWORD,
-          },
-        })
 
-        var mailOptions = {
-          from: process.env.SMTP_USER,
-          to: data.email_id,
-          subject: 'Credentials',
-          html: `Your Username : ${data.username}</br>Your Password : ${password}`,
-        }
-
-        transporter.sendMail(mailOptions, function (error, info) {
-          if (error) {
-            console.log(error)
-          } else {
-            console.log('Email sent: ' + info.response)
-          }
-        })
+        emailServices(data.email_id, 'Credentials', `Your Username : ${data.username}</br>Your Password : ${password}`);
       })
       .catch((error) => {
         res.status(403).send({
@@ -537,31 +515,8 @@ router.post('/auth/forgotPassword', async (req, res) => {
               .then((result) => {
                 console.log(result)
                 if (result) {
-                    var transporter = nodemailer.createTransport({
-                        host: process.env.SMTP_HOST,
-                        port: process.env.SMTP_PORT,
-                        secure: true,
-                        auth: {
-                        user: process.env.SMTP_USER,
-                        pass: process.env.SMTP_PASSWORD,
-                        },
-                    })
-            
-                    var mailOptions = {
-                    from: process.env.SMTP_USER,
-                    to: email,
-                    subject: 'Reset Password',
-                    html: forgotpasswordToken,
-                    }
-            
-                    transporter.sendMail(mailOptions, function (error, info) {
-                    if (error) {
-                        console.log(error)
-                    } else {
-                        console.log('Email sent: ' + info.response)
-                    }
-                    })
-            
+
+                    emailServices(email, 'Reset Password', forgotpasswordToken);
                     res.send(
                     result[0]
                         ? {
@@ -720,82 +675,70 @@ router.post('/auth/updatePassword', verify, async (req, res) => {
       data: {},
     })
   }
-
-  await User.findOne({
-    where: { email_id: email },
-  })
-    .then((result) => {
-      if (passwordSecure.decrypt(oldPassword, result.password)) {
-        User.update(
-          { password: passwordSecure.encrypt(newPassword) },
-          {
-            where: {
-              [Op.and]: [{ email_id: email }, { password: oldPassword }],
-            },
-          }
-        )
-          .then((result) => {
-            res.send(
-              result[0]
-                ? {
-                    isSuccess: true,
-                    message: 'Updated!',
-                    code: 200,
-                    data: {},
-                  }
-                : {
-                    isSuccess: false,
-                    message: 'Failed to update!',
-                    code: 401,
-                    data: {},
-                  }
-            )
-          })
-          .catch((error) => {
-            res.status(401).send({
-              isSuccess: false,
-              message: 'Failed to update!',
-              code: 401,
-              data: {},
-            })
-            console.error('Failed to update : ', error)
-          })
-
-        var transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: process.env.SMTP_PORT,
-          secure: true,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASSWORD,
-          },
-        })
-
-        var mailOptions = {
-          from: process.env.SMTP_USER,
-          to: email,
-          subject: 'Reset Password',
-          html: `Your password has been updated.`,
-        }
-
-        transporter.sendMail(mailOptions, function (error, info) {
-          if (error) {
-            console.log(error)
-          } else {
-            console.log('Email sent: ' + info.response)
-          }
-        })
-      }
-    })
-    .catch((error) => {
-      res.status(404).send({
-        isSuccess: false,
-        message: "Email doesn't exist!",
-        code: 404,
-        data: {},
+  else{
+    await User.findOne({
+        where: { email_id: email },
       })
-      console.log(error)
-    })
+        .then(async (result) => {
+          if (passwordSecure.decrypt(oldPassword, result.password)) {
+            await User.update(
+              { password: passwordSecure.encrypt(newPassword) },
+              {
+                where: {
+                  [Op.and]: [{ email_id: email }],
+                },
+              }
+            )
+              .then((result) => {
+                console.log(result)
+                if(result[0]){
+                    res.send(
+                        {
+                        isSuccess: true,
+                        message: 'Updated!',
+                        code: 200,
+                        data: {},
+                        }
+                    )
+                    emailServices(email, 'Reset Password', `Your password has been updated.`);
+                } else {
+                    res.status(401).send({
+                      isSuccess: false,
+                      message: 'Failed to update!',
+                      code: 401,
+                      data: {},
+                    })
+                }
+              })
+              .catch((error) => {
+                res.status(401).send({
+                  isSuccess: false,
+                  message: 'Failed to update!',
+                  code: 401,
+                  data: {},
+                })
+                console.error('Failed to update : ', error)
+              })
+          }
+          else {
+            res.status(401).send({
+                isSuccess: false,
+                message: 'Old password did not match!',
+                code: 401,
+                data: {},
+              })
+          }
+        })
+        .catch((error) => {
+          res.status(404).send({
+            isSuccess: false,
+            message: "Email doesn't exist!",
+            code: 404,
+            data: {},
+          })
+          console.log(error)
+        })
+  }
 });
 
 router.put('/user/:id', verify, async (req, res) => {
