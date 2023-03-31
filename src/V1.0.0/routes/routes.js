@@ -769,6 +769,7 @@ router.put('/user/:id', verify, async (req, res) => {
               email_id: data.email_id,
               address: data.address,
               blood_grp: data.blood_grp,
+              username: data.username
             },
             {
               where: {
@@ -817,7 +818,7 @@ router.put('/user/:id', verify, async (req, res) => {
 
 router.delete('/user/:id', verify, async (req, res) => {
     var id = req.params.id
-    await User.destroy({
+    await User.update({JWTtoken: ""},{
         where: {
         id: id,
         }
@@ -831,7 +832,11 @@ router.delete('/user/:id', verify, async (req, res) => {
             data: {},
             })
         } else{
-            await User.update({JWTtoken: ""}).then(async (result) => {
+            await User.destroy({
+                where: {
+                    id: id
+                }
+            }).then(async (result) => {
                 res.status(200).send({
                     isSuccess: true,
                     message: 'User Deleted',
